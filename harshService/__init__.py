@@ -1,26 +1,10 @@
-# ──────────────────────────────────────────────────────────
-# harshService/__init__.py — Exports imgUpsert
-# ──────────────────────────────────────────────────────────
-#
-# GOAL:
-#   Chain all 4 steps into one function:
-#     OCR → Chunking → Embedding → Upsert
-#
-# WHAT TO DO:
-#   1. Import extract_text   from harshService.ocr
-#   2. Import chunk_text     from harshService.chunking
-#   3. Import embed_chunks   from harshService.embedding
-#   4. Import upsert_vectors from harshService.upsert
-#   5. In imgUpsert:
-#        text    = extract_text(image_path)
-#        chunks  = chunk_text(text)
-#        vectors = embed_chunks(chunks)
-#        ids     = upsert_vectors(chunks, vectors, metadata...)
-#        return result dict
-#
-# FUNCTION SIGNATURE:
-#   imgUpsert(image_path, *, user_id, report_date) -> dict
-# ──────────────────────────────────────────────────────────
+
+from pathlib import Path
+
+from .ocr import extract_text
+from .chunking import chunk_text
+from .embedding import embed_chunks
+from .upsert import upsert_vectors
 
 
 def imgUpsert(
@@ -29,5 +13,28 @@ def imgUpsert(
     user_id: str = "default_user",
     report_date: str | None = None,
 ) -> dict:
-    """Full pipeline: OCR → Chunk → Embed → Upsert. Returns result dict."""
-    pass
+    """OCR -> chunking -> embeddings -> Qdrant."""
+
+    text = extract_text(image_path)
+    chunks = chunk_text(text)
+
+    if not chunks:
+        raise ValueError("No text chunks extracted")
+
+    vectors = embed_chunks(chunks)
+
+    ids = upsert_vectors(
+        chunks,
+        vectors,
+        user_id=user_id,
+        source_image=Path(image_path).name,
+        report_date=report_date,
+    )
+
+    return {
+        "user_id": user_id,
+        "source_image": Path(image_path).name,
+        "ReportDate": report_date,
+        "chunks_uploaded": len(ids),
+        "point_ids": ids,
+    }

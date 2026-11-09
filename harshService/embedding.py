@@ -1,22 +1,35 @@
-# ──────────────────────────────────────────────────────────
-# embedding.py — Gemma 2 Text Embeddings
-# ──────────────────────────────────────────────────────────
-#
-# GOAL:
-#   Embed all chunks using Gemma 2 (text) via sentence-transformers.
-#
-# WHAT TO DO:
-#   1. Import SentenceTransformer from sentence-transformers.
-#   2. Load EMBEDDING_MODEL_NAME from config (e.g. "google/gemma-2-2b").
-#   3. Load the model.
-#   4. Encode the list of chunks into dense vectors.
-#   5. Return list of vectors (list of list of floats).
-#
-# FUNCTION SIGNATURE:
-#   embed_chunks(chunks: list[str]) -> list[list[float]]
-# ──────────────────────────────────────────────────────────
+
+import math
+from google import genai
+from google.genai import types
+from config import settings
+
+
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 def embed_chunks(chunks: list[str]) -> list[list[float]]:
-    """Takes list of text chunks, returns list of embedding vectors."""
-    pass
+    """Embed report chunks using Google's hosted embedding API."""
+
+    vectors = []
+
+    for chunk in chunks:
+        response = client.models.embed_content(
+            model=settings.INGESTION_EMBEDDING_MODEL,
+            contents=chunk,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=768
+            )
+        )
+
+        vector = response.embeddings[0].values
+
+        norm = math.sqrt(sum(x * x for x in vector))
+
+        if norm == 0:
+            raise ValueError("Zero-length embedding vector")
+
+        vectors.append([float(x / norm) for x in vector])
+
+    return vectors

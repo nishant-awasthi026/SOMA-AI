@@ -1,31 +1,9 @@
-# ──────────────────────────────────────────────────────────
-# upsert.py — Upsert Vectors + Metadata into Qdrant Cloud
-# ──────────────────────────────────────────────────────────
-#
-# GOAL:
-#   Upsert embedded vectors with filterable metadata into Qdrant Cloud.
-#
-# WHAT TO DO:
-#   1. Import QdrantClient from qdrant-client.
-#   2. Load QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION_NAME from config.
-#   3. Connect to Qdrant Cloud using url + api_key.
-#   4. Check if collection exists — if not, create it with correct vector size
-#      and COSINE distance.
-#   5. Build PointStruct for each chunk with:
-#        - id: uuid
-#        - vector: the embedding
-#        - payload metadata:
-#            • text         (the chunk text)
-#            • user_id      (who owns this report)
-#            • source_image (original image filename)
-#            • chunk_index  (position in the document)
-#            • ReportDate   (date of the report — for filtering)
-#   6. Upsert all points into the collection.
-#   7. Return list of generated point IDs.
-#
-# FUNCTION SIGNATURE:
-#   upsert_vectors(chunks, vectors, *, user_id, source_image, report_date) -> list[str]
-# ──────────────────────────────────────────────────────────
+
+from uuid import uuid4
+from pathlib import Path
+
+from qdrant_client import QdrantClient, models
+from config import settings
 
 
 def upsert_vectors(
@@ -36,5 +14,52 @@ def upsert_vectors(
     source_image: str,
     report_date: str | None = None,
 ) -> list[str]:
-    """Upsert vectors + metadata into Qdrant. Returns list of point IDs."""
-    pass
+
+    if not chunks or len(chunks) != len(vectors):
+        raise ValueError("Chunks and vectors must be nonempty and match")
+
+    dimensions = len(vectors[0])
+
+    if any(len(vector) != dimensions for vector in vectors):
+        raise ValueError("All vectors must have the same dimensions")
+
+    client = QdrantClient(
+        url=settings.QDRANT_URL,
+        api_key=settings.QDRANT_API_KEY,
+    )
+
+    collection = settings.QDRANT_COLLECTION_NAME
+
+    if not client.collection_exists(collection):
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=models.VectorParams(
+                size=dimensions,
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+    ids = [str(uuid4()) for _ in chunks]
+
+    points = [
+        models.PointStruct(
+            id=ids[i],
+            vector=vectors[i],
+            payload={
+                "text": chunks[i],
+                "user_id": user_id,
+                "source_image": Path(source_image).name,
+                "chunk_index": i,
+                "ReportDate": report_date,
+            },
+        )
+        for i in range(len(chunks))
+    ]
+
+    client.upsert(
+        collection_name=collection,
+        points=points,
+        wait=True,
+    )
+
+    return ids
